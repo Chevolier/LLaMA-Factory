@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from types import MethodType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict
 
 import torch
 from peft import PeftModel
@@ -22,8 +23,7 @@ from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_utils import is_fsdp_enabled
 
 from ..extras import logging
-from ..extras.misc import infer_optim_dtype, is_env_enabled
-from ..extras.packages import is_transformers_version_greater_than
+from ..extras.misc import infer_optim_dtype
 from .model_utils.attention import configure_attn_implementation, print_attn_implementation
 from .model_utils.checkpointing import prepare_model_for_training
 from .model_utils.embedding import resize_embedding_layer
@@ -33,7 +33,13 @@ from .model_utils.packing import configure_packing
 from .model_utils.quantization import configure_quantization
 from .model_utils.rope import configure_rope
 from .model_utils.valuehead import prepare_valuehead_model
-from .model_utils.visual import autocast_projector_dtype, configure_visual_model
+from .model_utils.visual import (
+    autocast_projector_dtype,
+    configure_visual_model,
+    get_image_seqlen,
+    get_patch_size,
+    get_vision_feature_select_strategy,
+)
 
 
 if TYPE_CHECKING:
@@ -46,44 +52,32 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
-def patch_tokenizer(tokenizer: "PreTrainedTokenizer", model_args: "ModelArguments") -> None:
+def patch_tokenizer(tokenizer: "PreTrainedTokenizer") -> None:
     if "PreTrainedTokenizerBase" not in str(tokenizer._pad.__func__):
         tokenizer._pad = MethodType(PreTrainedTokenizerBase._pad, tokenizer)
-
-    if model_args.model_max_length is not None and tokenizer.model_max_length < model_args.model_max_length:
-        tokenizer.model_max_length = model_args.model_max_length  # enlarge the tokenizer max length
-
-    if model_args.new_special_tokens is not None:
-        num_added_tokens = tokenizer.add_special_tokens(
-            dict(additional_special_tokens=model_args.new_special_tokens),
-            replace_additional_special_tokens=False,
-        )
-        logger.info_rank0("Add {} to special tokens.".format(",".join(model_args.new_special_tokens)))
-        if num_added_tokens > 0 and not model_args.resize_vocab:
-            model_args.resize_vocab = True
-            logger.warning_rank0("New tokens have been added, changed `resize_vocab` to True.")
 
 
 def patch_processor(
     processor: "ProcessorMixin",
+    config: "PretrainedConfig",
     tokenizer: "PreTrainedTokenizer",
     model_args: "ModelArguments",
 ) -> None:
     setattr(processor, "tokenizer", tokenizer)
-    setattr(processor, "image_max_pixels", model_args.image_max_pixels)
-    setattr(processor, "image_min_pixels", model_args.image_min_pixels)
-    setattr(processor, "image_do_pan_and_scan", model_args.image_do_pan_and_scan)
-    setattr(processor, "video_max_pixels", model_args.video_max_pixels)
-    setattr(processor, "video_min_pixels", model_args.video_min_pixels)
+    setattr(processor, "image_seqlen", get_image_seqlen(config))
+    setattr(processor, "image_resolution", model_args.image_resolution)
+    setattr(processor, "patch_size", get_patch_size(config, processor))
+    setattr(processor, "video_resolution", model_args.video_resolution)
     setattr(processor, "video_fps", model_args.video_fps)
     setattr(processor, "video_maxlen", model_args.video_maxlen)
+    setattr(processor, "vision_feature_select_strategy", get_vision_feature_select_strategy(config, processor))
 
 
 def patch_config(
     config: "PretrainedConfig",
     tokenizer: "PreTrainedTokenizer",
     model_args: "ModelArguments",
-    init_kwargs: dict[str, Any],
+    init_kwargs: Dict[str, Any],
     is_trainable: bool,
 ) -> None:
     if model_args.compute_dtype is None:  # priority: bf16 > fp16 > fp32
@@ -93,7 +87,8 @@ def patch_config(
             model_args.compute_dtype = infer_optim_dtype(model_dtype=getattr(config, "torch_dtype", None))
 
     if is_torch_npu_available():
-        torch.npu.set_compile_mode(jit_compile=is_env_enabled("JIT_COMPILE"))
+        use_jit_compile = os.environ.get("JIT_COMPILE", "0").lower() in ["true", "1"]
+        torch.npu.set_compile_mode(jit_compile=use_jit_compile)
 
     configure_attn_implementation(config, model_args, is_trainable)
     configure_rope(config, model_args, is_trainable)
@@ -101,7 +96,7 @@ def patch_config(
     configure_quantization(config, tokenizer, model_args, init_kwargs)
     configure_moe(config, model_args, is_trainable)
     configure_visual_model(config)
-    configure_packing(model_args, is_trainable)
+    configure_packing(config, model_args, is_trainable)
 
     if model_args.use_cache and not is_trainable:
         setattr(config, "use_cache", True)
@@ -115,15 +110,8 @@ def patch_config(
     if getattr(config, "model_type", None) == "qwen2" and is_trainable and model_args.flash_attn == "fa2":
         setattr(config, "use_cache", False)  # qwen2 does not support use_cache when using flash attn
 
-    if getattr(config, "model_type", None) == "minicpmo":
-        setattr(config, "init_audio", True)
-        setattr(config, "init_tts", False)
-
     if "LlavaLlamaForCausalLM" in getattr(config, "architectures", []):
         raise ValueError("Please download llava models with hf-compatible format: https://huggingface.co/llava-hf")
-
-    if getattr(config, "model_type", None) == "internlm3" and not is_transformers_version_greater_than("4.47.1"):
-        raise RuntimeError("InternLM3 model requires transformers>=4.47.1, please upgrade it.")
 
     # deepspeed zero3 is not compatible with low_cpu_mem_usage
     init_kwargs["low_cpu_mem_usage"] = model_args.low_cpu_mem_usage and (not is_deepspeed_zero3_enabled())
@@ -157,9 +145,7 @@ def patch_model(
     ):
         gen_config.do_sample = True
 
-    if getattr(model.config, "model_type", None) not in ["minicpmv", "minicpmo"] and "GenerationMixin" not in str(
-        model.generate.__func__
-    ):
+    if "GenerationMixin" not in str(model.generate.__func__):
         model.generate = MethodType(PreTrainedModel.generate, model)
 
     if add_valuehead:

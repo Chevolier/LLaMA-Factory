@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 import time
 from enum import Enum, unique
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
@@ -45,7 +45,7 @@ class ModelCard(BaseModel):
 
 class ModelList(BaseModel):
     object: Literal["list"] = "list"
-    data: list[ModelCard] = []
+    data: List[ModelCard] = []
 
 
 class Function(BaseModel):
@@ -56,7 +56,7 @@ class Function(BaseModel):
 class FunctionDefinition(BaseModel):
     name: str
     description: str
-    parameters: dict[str, Any]
+    parameters: Dict[str, Any]
 
 
 class FunctionAvailable(BaseModel):
@@ -82,26 +82,26 @@ class MultimodalInputItem(BaseModel):
 
 class ChatMessage(BaseModel):
     role: Role
-    content: Optional[Union[str, list[MultimodalInputItem]]] = None
-    tool_calls: Optional[list[FunctionCall]] = None
+    content: Optional[Union[str, List[MultimodalInputItem]]] = None
+    tool_calls: Optional[List[FunctionCall]] = None
 
 
 class ChatCompletionMessage(BaseModel):
     role: Optional[Role] = None
     content: Optional[str] = None
-    tool_calls: Optional[list[FunctionCall]] = None
+    tool_calls: Optional[List[FunctionCall]] = None
 
 
 class ChatCompletionRequest(BaseModel):
     model: str
-    messages: list[ChatMessage]
-    tools: Optional[list[FunctionAvailable]] = None
+    messages: List[ChatMessage]
+    tools: Optional[List[FunctionAvailable]] = None
     do_sample: Optional[bool] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     n: int = 1
     max_tokens: Optional[int] = None
-    stop: Optional[Union[str, list[str]]] = None
+    stop: Optional[Union[str, List[str]]] = None
     stream: bool = False
 
 
@@ -128,7 +128,7 @@ class ChatCompletionResponse(BaseModel):
     object: Literal["chat.completion"] = "chat.completion"
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
-    choices: list[ChatCompletionResponseChoice]
+    choices: List[ChatCompletionResponseChoice]
     usage: ChatCompletionResponseUsage
 
 
@@ -137,12 +137,12 @@ class ChatCompletionStreamResponse(BaseModel):
     object: Literal["chat.completion.chunk"] = "chat.completion.chunk"
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
-    choices: list[ChatCompletionStreamResponseChoice]
+    choices: List[ChatCompletionStreamResponseChoice]
 
 
 class ScoreEvaluationRequest(BaseModel):
     model: str
-    messages: list[str]
+    messages: List[str]
     max_length: Optional[int] = None
 
 
@@ -150,4 +150,4 @@ class ScoreEvaluationResponse(BaseModel):
     id: str
     object: Literal["score.evaluation"] = "score.evaluation"
     model: str
-    scores: list[float]
+    scores: List[float]

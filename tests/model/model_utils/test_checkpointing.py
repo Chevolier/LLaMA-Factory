@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 
 import os
 
-import pytest
 import torch
 
 from llamafactory.extras.misc import get_current_device
@@ -33,17 +32,23 @@ TRAIN_ARGS = {
     "dataset_dir": "ONLINE",
     "template": "llama3",
     "cutoff_len": 1024,
+    "overwrite_cache": True,
     "output_dir": "dummy_dir",
     "overwrite_output_dir": True,
     "fp16": True,
 }
 
 
-@pytest.mark.parametrize("disable_gradient_checkpointing", [False, True])
-def test_vanilla_checkpointing(disable_gradient_checkpointing: bool):
-    model = load_train_model(disable_gradient_checkpointing=disable_gradient_checkpointing, **TRAIN_ARGS)
+def test_checkpointing_enable():
+    model = load_train_model(disable_gradient_checkpointing=False, **TRAIN_ARGS)
     for module in filter(lambda m: hasattr(m, "gradient_checkpointing"), model.modules()):
-        assert getattr(module, "gradient_checkpointing") != disable_gradient_checkpointing
+        assert getattr(module, "gradient_checkpointing") is True
+
+
+def test_checkpointing_disable():
+    model = load_train_model(disable_gradient_checkpointing=True, **TRAIN_ARGS)
+    for module in filter(lambda m: hasattr(m, "gradient_checkpointing"), model.modules()):
+        assert getattr(module, "gradient_checkpointing") is False
 
 
 def test_unsloth_gradient_checkpointing():
@@ -62,5 +67,5 @@ def test_upcast_layernorm():
 def test_upcast_lmhead_output():
     model = load_train_model(upcast_lmhead_output=True, **TRAIN_ARGS)
     inputs = torch.randn((1, 16), dtype=torch.float16, device=get_current_device())
-    outputs: torch.Tensor = model.get_output_embeddings()(inputs)
+    outputs: "torch.Tensor" = model.get_output_embeddings()(inputs)
     assert outputs.dtype == torch.float32

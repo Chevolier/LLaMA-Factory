@@ -1,4 +1,3 @@
-# Copyright 2025 the LlamaFactory team.
 # Copyright 2020 The HuggingFace Datasets Authors and the current dataset script contributor.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,15 +21,14 @@ import pandas as pd
 _CITATION = """\
 @article{huang2023ceval,
   title={C-Eval: A Multi-Level Multi-Discipline Chinese Evaluation Suite for Foundation Models},
-  author={Huang, Yuzhen and Bai, Yuzhuo and Zhu, Zhihao and others},
+  author={Huang, Yuzhen and Bai, Yuzhuo and Zhu, Zhihao and Zhang, Junlei and Zhang, Jinghan and Su, Tangjun and Liu, Junteng and Lv, Chuancheng and Zhang, Yikai and Lei, Jiayi and Fu, Yao and Sun, Maosong and He, Junxian},
   journal={arXiv preprint arXiv:2305.08322},
   year={2023}
 }
 """
 
 _DESCRIPTION = """\
-C-Eval is a comprehensive Chinese evaluation suite for foundation models.
-It consists of 13948 multi-choice questions spanning 52 diverse disciplines and four difficulty levels.
+C-Eval is a comprehensive Chinese evaluation suite for foundation models. It consists of 13948 multi-choice questions spanning 52 diverse disciplines and four difficulty levels.
 """
 
 _HOMEPAGE = "https://cevalbenchmark.com"

@@ -1,4 +1,4 @@
-# Copyright 2025 HuggingFace Inc. and the LlamaFactory team.
+# Copyright 2024 HuggingFace Inc. and the LlamaFactory team.
 #
 # This code is inspired by the HuggingFace's TRL library.
 # https://github.com/huggingface/trl/blob/v0.8.0/examples/scripts/dpo.py
@@ -15,11 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from ...data import PairwiseDataCollatorWithPadding, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
-from ...extras.misc import calculate_tps
+from ...extras.misc import cal_effective_tokens
 from ...extras.ploting import plot_loss
 from ...hparams import ModelArguments
 from ...model import load_model, load_tokenizer
@@ -38,19 +38,19 @@ def run_dpo(
     data_args: "DataArguments",
     training_args: "Seq2SeqTrainingArguments",
     finetuning_args: "FinetuningArguments",
-    callbacks: Optional[list["TrainerCallback"]] = None,
+    callbacks: Optional[List["TrainerCallback"]] = None,
 ):
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="rm", **tokenizer_module)
-    model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
+    model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train, full_determinism=training_args.full_determinism)
 
     data_collator = PairwiseDataCollatorWithPadding(
         template=template,
-        model=model,
         pad_to_multiple_of=8,
         label_pad_token_id=IGNORE_INDEX if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id,
+        require_position_ids=model_args.sequence_parallel_size > 1,
         **tokenizer_module,
     )
 
@@ -65,6 +65,12 @@ def run_dpo(
 
     # Update arguments
     training_args.remove_unused_columns = False  # important for multimodal and pairwise dataset
+
+    effective_token_num = 0.0
+    if finetuning_args.include_effective_tokens_per_second:
+        for data in dataset_module["train_dataset"]:
+            effective_token_num += len(data["chosen_input_ids"])
+            effective_token_num += len(data["rejected_input_ids"])
 
     # Initialize our Trainer
     trainer = CustomDPOTrainer(
@@ -81,12 +87,13 @@ def run_dpo(
     # Training
     if training_args.do_train:
         train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
-        trainer.save_model()
+
         if finetuning_args.include_effective_tokens_per_second:
-            train_result.metrics["effective_tokens_per_sec"] = calculate_tps(
-                dataset_module["train_dataset"], train_result.metrics, stage="rm"
+            train_result.metrics["effective_tokens_per_sec"] = cal_effective_tokens(
+                effective_token_num, train_result.metrics["epoch"], train_result.metrics["train_runtime"]
             )
 
+        trainer.save_model()
         trainer.log_metrics("train", train_result.metrics)
         trainer.save_metrics("train", train_result.metrics)
         trainer.save_state()

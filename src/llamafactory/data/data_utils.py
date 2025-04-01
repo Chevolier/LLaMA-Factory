@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from enum import Enum, unique
-from typing import TYPE_CHECKING, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set, TypedDict, Union
 
 from datasets import DatasetDict, concatenate_datasets, interleave_datasets
 
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
-SLOTS = list[Union[str, set[str], dict[str, str]]]
+SLOTS = Sequence[Union[str, Set[str], Dict[str, str]]]
 
 
 @unique
@@ -43,25 +43,25 @@ class Role(str, Enum):
 
 class DatasetModule(TypedDict):
     train_dataset: Optional[Union["Dataset", "IterableDataset"]]
-    eval_dataset: Optional[Union["Dataset", "IterableDataset", dict[str, "Dataset"]]]
+    eval_dataset: Optional[Union["Dataset", "IterableDataset"]]
 
 
 def merge_dataset(
-    all_datasets: list[Union["Dataset", "IterableDataset"]], data_args: "DataArguments", seed: int
+    all_datasets: List[Union["Dataset", "IterableDataset"]], data_args: "DataArguments", seed: int
 ) -> Union["Dataset", "IterableDataset"]:
-    r"""Merge multiple datasets to a unified dataset."""
+    r"""
+    Merges multiple datasets to a unified dataset.
+    """
     if len(all_datasets) == 1:
         return all_datasets[0]
-
     elif data_args.mix_strategy == "concat":
         if data_args.streaming:
-            logger.warning_rank0_once("The samples between different datasets will not be mixed in streaming mode.")
+            logger.warning_once("The samples between different datasets will not be mixed in streaming mode.")
 
         return concatenate_datasets(all_datasets)
-
     elif data_args.mix_strategy.startswith("interleave"):
         if not data_args.streaming:
-            logger.warning_rank0_once("We recommend using `mix_strategy=concat` in non-streaming mode.")
+            logger.warning_once("We recommend using `mix_strategy=concat` in non-streaming mode.")
 
         return interleave_datasets(
             datasets=all_datasets,
@@ -69,72 +69,41 @@ def merge_dataset(
             seed=seed,
             stopping_strategy="first_exhausted" if data_args.mix_strategy.endswith("under") else "all_exhausted",
         )
-
     else:
         raise ValueError(f"Unknown mixing strategy: {data_args.mix_strategy}.")
 
 
 def split_dataset(
-    dataset: Optional[Union["Dataset", "IterableDataset"]],
-    eval_dataset: Optional[Union["Dataset", "IterableDataset", dict[str, "Dataset"]]],
-    data_args: "DataArguments",
-    seed: int,
+    dataset: Union["Dataset", "IterableDataset"], data_args: "DataArguments", seed: int
 ) -> "DatasetDict":
-    r"""Split the dataset and returns a dataset dict containing train set and validation set.
+    r"""
+    Splits the dataset and returns a dataset dict containing train set and validation set.
 
-    Support both map dataset and iterable dataset.
+    Supports both map dataset and iterable dataset.
     """
-    if eval_dataset is not None and data_args.val_size > 1e-6:
-        raise ValueError("Cannot specify `val_size` if `eval_dataset` is not None.")
-
-    dataset_dict = {}
-    if dataset is not None:
-        if data_args.streaming:
-            dataset = dataset.shuffle(buffer_size=data_args.buffer_size, seed=seed)
-
-        if data_args.val_size > 1e-6:
-            if data_args.streaming:
-                dataset_dict["validation"] = dataset.take(int(data_args.val_size))
-                dataset_dict["train"] = dataset.skip(int(data_args.val_size))
-            else:
-                val_size = int(data_args.val_size) if data_args.val_size > 1 else data_args.val_size
-                dataset_dict = dataset.train_test_split(test_size=val_size, seed=seed)
-                dataset = dataset.train_test_split(test_size=val_size, seed=seed)
-                dataset_dict = {"train": dataset["train"], "validation": dataset["test"]}
-        else:
-            dataset_dict["train"] = dataset
-
-    if eval_dataset is not None:
-        if isinstance(eval_dataset, dict):
-            dataset_dict.update({f"validation_{name}": data for name, data in eval_dataset.items()})
-        else:
-            if data_args.streaming:
-                eval_dataset = eval_dataset.shuffle(buffer_size=data_args.buffer_size, seed=seed)
-
-            dataset_dict["validation"] = eval_dataset
-
-    return DatasetDict(dataset_dict)
+    if data_args.streaming:
+        dataset = dataset.shuffle(buffer_size=data_args.buffer_size, seed=seed)
+        val_set = dataset.take(int(data_args.val_size))
+        train_set = dataset.skip(int(data_args.val_size))
+        return DatasetDict({"train": train_set, "validation": val_set})
+    else:
+        val_size = int(data_args.val_size) if data_args.val_size > 1 else data_args.val_size
+        dataset = dataset.train_test_split(test_size=val_size, seed=seed)
+        return DatasetDict({"train": dataset["train"], "validation": dataset["test"]})
 
 
-def get_dataset_module(dataset: Union["Dataset", "DatasetDict"]) -> "DatasetModule":
-    r"""Convert dataset or dataset dict to dataset module."""
-    dataset_module: DatasetModule = {}
-    if isinstance(dataset, DatasetDict):  # dataset dict
-        if "train" in dataset:
-            dataset_module["train_dataset"] = dataset["train"]
-
-        if "validation" in dataset:
-            dataset_module["eval_dataset"] = dataset["validation"]
-        else:
-            eval_dataset = {}
-            for key in dataset.keys():
-                if key.startswith("validation_"):
-                    eval_dataset[key[len("validation_") :]] = dataset[key]
-
-            if len(eval_dataset):
-                dataset_module["eval_dataset"] = eval_dataset
-
-    else:  # single dataset
-        dataset_module["train_dataset"] = dataset
-
-    return dataset_module
+# modified from https://github.com/jzhang38/EasyContext/
+def preprocess_sp_dataset(seq_ids, world_size, sequence_parallel_mode):
+    if sequence_parallel_mode == "zigzag-ring":
+        step = len(seq_ids) // (2 * world_size)
+        value_chunks = [seq_ids[s : s + step] for s in range(0, len(seq_ids), step)]
+        local_values = list()
+        for rank in range(world_size):
+            local_values.append(value_chunks[rank] + value_chunks[2 * world_size - rank - 1])
+        return local_values
+    elif sequence_parallel_mode == "ulysses":
+        step = len(seq_ids) // world_size
+        local_values = [seq_ids[s : s + step] for s in range(0, len(seq_ids), step)]
+        return local_values
+    else:
+        raise NotImplementedError("Other sequence parallel modes are to be implemented.")

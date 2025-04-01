@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ...extras import logging
 from ...extras.misc import get_current_device
@@ -29,7 +29,7 @@ logger = logging.get_logger(__name__)
 
 def _get_unsloth_kwargs(
     config: "PretrainedConfig", model_name_or_path: str, model_args: "ModelArguments"
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     return {
         "model_name": model_name_or_path,
         "max_seq_length": model_args.model_max_length or 4096,
@@ -39,7 +39,7 @@ def _get_unsloth_kwargs(
         "device_map": {"": get_current_device()},
         "rope_scaling": getattr(config, "rope_scaling", None),
         "fix_tokenizer": False,
-        "trust_remote_code": model_args.trust_remote_code,
+        "trust_remote_code": True,
         "use_gradient_checkpointing": "unsloth",
     }
 
@@ -47,8 +47,10 @@ def _get_unsloth_kwargs(
 def load_unsloth_pretrained_model(
     config: "PretrainedConfig", model_args: "ModelArguments"
 ) -> Optional["PreTrainedModel"]:
-    r"""Optionally load pretrained model with unsloth. Used in training."""
-    from unsloth import FastLanguageModel  # type: ignore
+    r"""
+    Optionally loads pretrained model with unsloth. Used in training.
+    """
+    from unsloth import FastLanguageModel
 
     unsloth_kwargs = _get_unsloth_kwargs(config, model_args.model_name_or_path, model_args)
     try:
@@ -62,10 +64,12 @@ def load_unsloth_pretrained_model(
 
 
 def get_unsloth_peft_model(
-    model: "PreTrainedModel", model_args: "ModelArguments", peft_kwargs: dict[str, Any]
+    model: "PreTrainedModel", model_args: "ModelArguments", peft_kwargs: Dict[str, Any]
 ) -> "PreTrainedModel":
-    r"""Get the peft model for the pretrained model with unsloth. Used in training."""
-    from unsloth import FastLanguageModel  # type: ignore
+    r"""
+    Gets the peft model for the pretrained model with unsloth. Used in training.
+    """
+    from unsloth import FastLanguageModel
 
     unsloth_peft_kwargs = {
         "model": model,
@@ -78,8 +82,10 @@ def get_unsloth_peft_model(
 def load_unsloth_peft_model(
     config: "PretrainedConfig", model_args: "ModelArguments", is_trainable: bool
 ) -> "PreTrainedModel":
-    r"""Load peft model with unsloth. Used in both training and inference."""
-    from unsloth import FastLanguageModel  # type: ignore
+    r"""
+    Loads peft model with unsloth. Used in both training and inference.
+    """
+    from unsloth import FastLanguageModel
 
     unsloth_kwargs = _get_unsloth_kwargs(config, model_args.adapter_name_or_path[0], model_args)
     try:

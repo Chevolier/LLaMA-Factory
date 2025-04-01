@@ -1,4 +1,4 @@
-# Copyright 2025 the LlamaFactory team.
+# Copyright 2024 the LlamaFactory team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,9 +13,8 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional, Sequence, Union
 
 
 if TYPE_CHECKING:
@@ -23,8 +22,7 @@ if TYPE_CHECKING:
     from vllm import AsyncLLMEngine
 
     from ..data import Template
-    from ..data.mm_plugin import AudioInput, ImageInput, VideoInput
-    from ..extras.constants import EngineName
+    from ..data.mm_plugin import ImageInput, VideoInput
     from ..hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
 
@@ -37,17 +35,17 @@ class Response:
 
 
 class BaseEngine(ABC):
-    r"""Base class for inference engine of chat models.
+    r"""
+    Base class for inference engine of chat models.
 
     Must implements async methods: chat(), stream_chat() and get_scores().
     """
 
-    name: "EngineName"
     model: Union["PreTrainedModel", "AsyncLLMEngine"]
     tokenizer: "PreTrainedTokenizer"
     can_generate: bool
     template: "Template"
-    generating_args: dict[str, Any]
+    generating_args: Dict[str, Any]
 
     @abstractmethod
     def __init__(
@@ -57,42 +55,48 @@ class BaseEngine(ABC):
         finetuning_args: "FinetuningArguments",
         generating_args: "GeneratingArguments",
     ) -> None:
-        r"""Initialize an inference engine."""
+        r"""
+        Initializes an inference engine.
+        """
         ...
 
     @abstractmethod
     async def chat(
         self,
-        messages: list[dict[str, str]],
+        messages: Sequence[Dict[str, str]],
         system: Optional[str] = None,
         tools: Optional[str] = None,
-        images: Optional[list["ImageInput"]] = None,
-        videos: Optional[list["VideoInput"]] = None,
-        audios: Optional[list["AudioInput"]] = None,
+        images: Optional[Sequence["ImageInput"]] = None,
+        videos: Optional[Sequence["VideoInput"]] = None,
         **input_kwargs,
-    ) -> list["Response"]:
-        r"""Get a list of responses of the chat model."""
+    ) -> List["Response"]:
+        r"""
+        Gets a list of responses of the chat model.
+        """
         ...
 
     @abstractmethod
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: Sequence[Dict[str, str]],
         system: Optional[str] = None,
         tools: Optional[str] = None,
-        images: Optional[list["ImageInput"]] = None,
-        videos: Optional[list["VideoInput"]] = None,
-        audios: Optional[list["AudioInput"]] = None,
+        images: Optional[Sequence["ImageInput"]] = None,
+        videos: Optional[Sequence["VideoInput"]] = None,
         **input_kwargs,
     ) -> AsyncGenerator[str, None]:
-        r"""Get the response token-by-token of the chat model."""
+        r"""
+        Gets the response token-by-token of the chat model.
+        """
         ...
 
     @abstractmethod
     async def get_scores(
         self,
-        batch_input: list[str],
+        batch_input: List[str],
         **input_kwargs,
-    ) -> list[float]:
-        r"""Get a list of scores of the reward model."""
+    ) -> List[float]:
+        r"""
+        Gets a list of scores of the reward model.
+        """
         ...
