@@ -71,12 +71,20 @@ To run 360-LLaMA-Factory with SP,
 We have updated `requirements.txt`, so you could simply create a new Python environment and install 360-LLaMA-Factory.
 
 ```shell
-conda create -n 360-llama-factory python=3.11 -y  # LLaMA-Factory recommends Python 3.11
+# conda create -n 360-llama-factory python=3.11 -y  # LLaMA-Factory recommends Python 3.11
+conda create -p /home/ec2-user/SageMaker/efs/conda_envs/360-llama-factory python=3.11 -y  # LLaMA-Factory recommends Python 3.11
+
 conda activate 360-llama-factory
 
 git clone https://github.com/Qihoo360/360-LLaMA-Factory.git 
 cd 360-LLaMA-Factory
+
+pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
 pip install -e ".[torch,metrics,deepspeed]"
+```
+
+```bash
+nohup bash train_script_ec2.sh >logs/train.out 2>&1 &
 ```
 
 #### Incremental
